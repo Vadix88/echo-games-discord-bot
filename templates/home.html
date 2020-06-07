@@ -36,6 +36,12 @@
                     <li class="navbar-item">
                         <a class="btn btn-primary text-nowrap" {% if username is defined %}data-toggle="modal" data-target="#requestmodal" href=""{% else %}href="/login"{% endif %}>Create Feature Request</a>
                     </li>
+                    {% if admin %}
+                    <li class="navbar-item" id="mergeModalOpen">
+                        <a class="btn btn-primary text-nowrap ml-2" data-toggle="modal" data-target="#mergeModal" href=""
+                            onclick="refreshMergeModalList()">Show requests to merge</a>
+                    </li>
+                    {% endif %}
                 </ul>
                 <ul class="navbar-nav ml-auto">
                     <li class="navbar-item d-flex align-items-center">
@@ -85,6 +91,29 @@
                 </div>
             </div>
         </div>
+
+        {% if admin %}
+        <div class="modal fade" id="mergeModal" tabindex="-1" role="dialog" aria-labelledby="mergeModalLabel"
+            aria-hidden="true">
+            <div class="modal-dialog modal-lg" style="height: 85vh;">
+                <div class="modal-content h-100">
+                    <div class="modal-header p-2 pl-3">
+                        <h5 class="modal-title" id="mergeModalLabel">Request merging</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body p-2" style="overflow-y: scroll;">
+                        <ul id="mergeModalRequestList" class="pl-0">
+                        </ul>
+                    </div>
+                    <div class="modal-footer p-2">
+                        <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
 
         {% if error is not none %}
         <div class="container mt-3">
@@ -221,17 +250,22 @@
 
         <template id="requestTemplate">
             <li class="list-group-item request" id="">
-                <div class="d-flex w-100 justify-content-between">
+                <div class="d-flex w-100 justify-content-between" id="requestHeader">
                     <div>
                         <h5 class="mb-1" id="title"></h5>
                     </div>
                     <small class="text-nowrap" id="smallText" style="text-align: right;"></small>
                 </div>
                 <p style="margin-bottom: 0.2em" id="description"></p>
-                <div class="d-flex justify-content-between flex-wrap">
+                <div class="d-flex justify-content-between flex-wrap" id="requestFooter">
                     <small style="margin-bottom: 0.2em" id="author"></small>
                     <div class="d-flex flex-nowrap ml-auto">
-                        <span class="ml-2">
+                        {% if admin %}
+                        <span class="ml-2" id="mergeSpan">
+                            <button type="button" class="btn btn-warning" onclick="addRequestToList(this)" id="selectToMergeButton" requestId="">Select to merge</button>
+                        </span>
+                        {% endif %}
+                        <span class="ml-2" id="detailsSpan">
                             <button type="button" class="btn btn-primary" onclick="" id="detailsButton">Details</button>
                         </span>
                         <span class="mr-1 ml-1" id="upSpan">
@@ -450,6 +484,9 @@
                     template.find("li")[0].setAttributeNode(attr);
 
                     template.find("li")[0].attributes["id"].value = request.mid;
+                    
+                    template.find("#selectToMergeButton")[0].attributes["requestId"].value = request.mid;
+
                     return template
             }
 
@@ -608,6 +645,122 @@
             updateRequests();
 
         </script>
+
+        {% if admin %}
+        <script>
+            var selectedRequests = [];
+
+            function refreshMergeModalList() {
+                let modalList = $("#mergeModalRequestList");
+                modalList.empty();
+
+                selectedRequests.forEach(function (selectedRequestId, i) {
+                    let sourceRequest = $("#" + selectedRequestId).clone();
+                    sourceRequest.find("#mergeSpan")[0].remove();
+                    sourceRequest.find("#detailsSpan")[0].remove();
+                    sourceRequest.find("#upButton")[0].removeAttribute("onclick");
+                    sourceRequest.find("#downButton")[0].removeAttribute("onclick");
+                    sourceRequest.find("#requestHeader")
+                        .attr("data-toggle", "collapse")
+                        .attr("data-target", "#contentWrapper" + selectedRequestId)
+                        .attr("aria-expanded", "false")
+                        .attr("aria-controls", "contentWrapper" + selectedRequestId)
+                        .css("cursor", "pointer");
+                    let requestDescription = sourceRequest.find("#description");
+                    let requestFooter = sourceRequest.find("#requestFooter");
+                    let requestContentWrapper = $("<div></div>")
+                        .attr("id", "contentWrapper" + selectedRequestId)
+                        .addClass("collapse")
+                        .append(requestDescription)
+                        .append(requestFooter);
+                    sourceRequest.append(requestContentWrapper);
+
+                    let listElem = $("<li></li>")
+                        .addClass("d-flex w-100 justify-content-between");
+
+                    let contentContainer = $("<div></div>")
+                        .addClass("w-100")
+                        .append(sourceRequest);
+
+                    listElem.append(contentContainer);
+
+                    let buttonContainer = $("<div></div>")
+                        .addClass("d-flex flex-nowrap ml-auto");
+
+                    if (selectedRequests.length > 1) {
+                        let mergeButton = $("<button></button>")
+                            .attr("type", "button")
+                            .click({ index: i }, mergeSelectedTo)
+                            .text("Merge to this")
+                            .addClass("btn btn-warning btn-sm ml-2")
+                            .css("height", "38px");
+
+                        buttonContainer.append(mergeButton);
+                    }
+
+                    let removeButton = $("<button></button>")
+                        .attr("type", "button")
+                        .click({ index: i }, removeRequestFromList)
+                        .text("X")
+                        .addClass("btn btn-outline-danger btn-sm ml-2")
+                        .css("height", "38px");
+
+                    buttonContainer.append(removeButton);
+
+                    listElem.append(buttonContainer);
+
+                    modalList.append(listElem);
+                });
+            }
+
+            function addRequestToList(sender) {
+                let requestId = sender.attributes["requestId"].value;
+                if (selectedRequests && !selectedRequests.some(sr => sr == requestId))
+                    selectedRequests.push(requestId);
+                setMergeModalButtonVisibility();
+            }
+
+            function removeRequestFromList(event) {
+                selectedRequests.splice(event.data.index, 1);
+                refreshMergeModalList();
+                setMergeModalButtonVisibility();
+                if (selectedRequests.length < 1) {
+                    $("#mergeModal").modal('hide');
+                }
+            }
+
+            function mergeSelectedTo(event) {
+                let targetIndex = event.data.index;
+                let targetId = selectedRequests.splice(targetIndex, 1)[0];
+                let payload = { targetId: targetId, sourceIds: selectedRequests }
+                let payloadJson = JSON.stringify(payload);
+                
+                let xhttp = new XMLHttpRequest();
+                xhttp.onreadystatechange = function () {
+                    if (this.responseText == "OK") {
+                        updateSingleRequest(targetId);
+                        selectedRequests.forEach(sr => {
+                            updateSingleRequest(sr);
+                        });
+                        selectedRequests = [];
+                        refreshMergeModalList();
+                        setMergeModalButtonVisibility();
+                        $("#mergeModal").modal('hide');
+                        console.log("success");
+                    }
+                };
+                // xhttp.open("POST", "/api/merge", true);
+                // xhttp.send(payloadJson);
+                console.log("merging");
+            }
+
+            function setMergeModalButtonVisibility() {
+                $("#mergeModalOpen").css("display", selectedRequests.length > 0 ? "" : "none");
+            }
+
+            setMergeModalButtonVisibility();
+        </script>
+        {% endif %}
 
         <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js" integrity="sha384-ApNbgh9B+Y1QKtv3Rn7W3mgPxhU9K/ScQsAP7hUibX39j7fakFPskvXusvfa0b4Q" crossorigin="anonymous"></script>
         <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js" integrity="sha384-JZR6Spejh4U02d8jOt6vLEHfe/JQGiRRSQQxSfFWpi1MquVdAyjUar5+76PVCmYl" crossorigin="anonymous"></script>
