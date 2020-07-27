@@ -18,6 +18,42 @@
                 .navbar-brand {
                     font-size: 1rem
                 }
+
+                {% if admin %}
+                #mergeSpan,
+                #mergeModalOpen {
+                    display: none;
+                }
+
+                .merging #mergeSpan,
+                .merging #mergeModalOpen {
+                    display: block;
+                }
+
+                .mergingOnOffLabel {
+                    color: #fff;
+                    margin-bottom: 0;
+                }
+
+                #mergingOnOff {
+                    height: 15px;
+                    width: 15px;
+                }
+
+                #mergeConfirmModalRequestList .btn,
+                #mergeConfirmModalTargetRequest .btn,
+                #mergeModalRequestList .request .btn {
+                    cursor: default;
+                }
+
+                #mergeConfirmModalRequestList .listSymbol {
+                    width: 1rem;
+                }
+
+                #mergeConfirmModalTargetRequest {
+                    border-bottom: 1px solid black;
+                }
+                {% endif %}
             }
         </style>
     </head>
@@ -38,12 +74,18 @@
                     </li>
                     {% if admin %}
                     <li class="navbar-item" id="mergeModalOpen">
-                        <a class="btn btn-primary text-nowrap ml-2" data-toggle="modal" data-target="#mergeModal" href=""
+                        <a class="btn btn-warning text-nowrap ml-2" data-toggle="modal" data-target="#mergeModal" href=""
                             onclick="refreshMergeModalList()">Show requests to merge</a>
                     </li>
                     {% endif %}
                 </ul>
                 <ul class="navbar-nav ml-auto">
+                    {% if admin %}
+                    <li class="navbar-item d-flex align-items-center pr-5">
+                        <label class="mergingOnOffLabel" for="mergingOnOff">Request merging on/off&nbsp;</label>
+                        <input type="checkbox" id="mergingOnOff" onclick="setMergingOnOff()">
+                    </li>
+                    {% endif %}
                     <li class="navbar-item d-flex align-items-center">
                         {% if username is defined %}
                         <img class="rounded" src="{{ avatar }}" style="height: 2em; width: 2em">
@@ -99,7 +141,8 @@
                 <div class="modal-content h-100">
                     <div class="modal-header p-2 pl-3">
                         <h5 class="modal-title" id="mergeModalLabel">Request merging</h5>
-                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <button type="button" class="btn btn-sm btn-outline-danger ml-auto" onclick="clearSelectionList()">Clear all</button>
+                        <button type="button" class="close ml-1" data-dismiss="modal" aria-label="Close">
                             <span aria-hidden="true">&times;</span>
                         </button>
                     </div>
@@ -109,6 +152,33 @@
                     </div>
                     <div class="modal-footer p-2">
                         <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal fade" id="mergeConfirmModal" tabindex="-1" role="dialog" aria-labelledby="mergeConfirmModalLabel"
+            aria-hidden="true">
+            <div class="modal-dialog modal-lg" style="height: 85vh;">
+                <div class="modal-content h-100">
+                    <div class="modal-header p-2 pl-3">
+                        <h5 class="modal-title" id="mergeConfirmModalLabel">Confirm merge</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body p-2" style="overflow-y: scroll;">
+                        <div class="ml-4">To:</div>
+                        <div id="mergeConfirmModalTargetRequest" class="d-flex w-100 mb-2 pb-1 pl-4">
+                        </div>
+                        <div class="ml-4">From:</div>
+                        <ul id="mergeConfirmModalRequestList" class="pl-4">
+                        </ul>
+                    </div>
+                    <div class="modal-footer p-2">
+                        <button type="button" id="confirmMergeButton" class="btn btn-sm btn-primary"
+                            data-targetindex="" onclick="mergeSelectedToTarget(event)">Merge</button>
+                        <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal" onclick="cancelMerge()">Cancel</button>
                     </div>
                 </div>
             </div>
@@ -249,7 +319,7 @@
         </template>
 
         <template id="requestTemplate">
-            <li class="list-group-item request" id="">
+            <li class="list-group-item request" id="" data-votesup="" data-votesdown="">
                 <div class="d-flex w-100 justify-content-between" id="requestHeader">
                     <div>
                         <h5 class="mb-1" id="title"></h5>
@@ -487,6 +557,9 @@
                     
                     template.find("#selectToMergeButton")[0].attributes["requestId"].value = request.mid;
 
+                    template.find("li")[0].attributes["data-votesUp"].value = request.up;
+                    template.find("li")[0].attributes["data-votesDown"].value = request.down;
+
                     return template
             }
 
@@ -650,6 +723,15 @@
         <script>
             var selectedRequests = [];
 
+            function setMergingOnOff() {
+                let mergingOnOffCheckbox = document.getElementById("mergingOnOff");
+                if(mergingOnOffCheckbox.checked) {
+                    $("body").addClass("merging");
+                } else {
+                    $("body").removeClass("merging");
+                }
+            }
+
             function refreshMergeModalList() {
                 let modalList = $("#mergeModalRequestList");
                 modalList.empty();
@@ -661,6 +743,7 @@
                     sourceRequest.find("#upButton")[0].removeAttribute("onclick");
                     sourceRequest.find("#downButton")[0].removeAttribute("onclick");
                     sourceRequest.find("#requestHeader")
+                        .attr("title", "Click to expand/collapse")
                         .attr("data-toggle", "collapse")
                         .attr("data-target", "#contentWrapper" + selectedRequestId)
                         .attr("aria-expanded", "false")
@@ -690,7 +773,8 @@
                     if (selectedRequests.length > 1) {
                         let mergeButton = $("<button></button>")
                             .attr("type", "button")
-                            .click({ index: i }, mergeSelectedTo)
+                            .attr("title", "Merge all other selected requests to this one")
+                            .click({ index: i }, showMergeConfirmModal)
                             .text("Merge to this")
                             .addClass("btn btn-warning btn-sm ml-2")
                             .css("height", "38px");
@@ -700,6 +784,7 @@
 
                     let removeButton = $("<button></button>")
                         .attr("type", "button")
+                        .attr("title", "Remove from list")
                         .click({ index: i }, removeRequestFromList)
                         .text("X")
                         .addClass("btn btn-outline-danger btn-sm ml-2")
@@ -715,37 +800,193 @@
 
             function addRequestToList(sender) {
                 let requestId = sender.attributes["requestId"].value;
-                if (selectedRequests && !selectedRequests.some(sr => sr == requestId))
+                if (selectedRequests && !selectedRequests.some(sr => sr == requestId)) {
                     selectedRequests.push(requestId);
+                    setSelectToMergeButtonVisibility(requestId, false);
+                }
                 setMergeModalButtonVisibility();
             }
 
             function removeRequestFromList(event) {
-                selectedRequests.splice(event.data.index, 1);
+                let removedRequestId = selectedRequests.splice(event.data.index, 1);
                 refreshMergeModalList();
                 setMergeModalButtonVisibility();
+                setSelectToMergeButtonVisibility(removedRequestId, true);
                 if (selectedRequests.length < 1) {
                     $("#mergeModal").modal('hide');
                 }
             }
 
-            function mergeSelectedTo(event) {
+            function clearSelectionList() {
+                let tempSelectedRequests = selectedRequests;
+                selectedRequests = [];
+                refreshMergeModalList();
+                setMergeModalButtonVisibility();
+                tempSelectedRequests.forEach(function (requestId, i) {
+                    setSelectToMergeButtonVisibility(requestId, true);
+                });
+                $("#mergeModal").modal('hide');
+            }
+
+            function setSelectToMergeButtonVisibility(requestId, showButton) {
+                let button = $("#requestList #" + requestId).find("#selectToMergeButton");
+                if(showButton) {
+                    button.removeClass("d-none");
+                } else {
+                    button.addClass("d-none");
+                }
+            }
+
+            function refreshConfirmMergeModalList(targetId) {
+                let modalTargetRequest = $("#mergeConfirmModalTargetRequest");
+                modalTargetRequest.empty();
+                let modalList = $("#mergeConfirmModalRequestList");
+                modalList.empty();
+
+                if(!targetId)
+                    return;
+
+                let targetRequestData = getRequestElementData(targetId);
+                let votesUpSum = targetRequestData.votesUp;
+                let votesDownSum = targetRequestData.votesDown;
+
+                let listElem = $("<li></li>")
+                    .addClass("d-flex w-100 mb-1 pl-3");
+
+                let votesUpElement = $("<div></div>")
+                    .text(targetRequestData.votesUp)
+                    .addClass("ml-1 btn btn-sm btn-outline-success")
+                    .css("width", "3rem");
+
+                listElem.append(votesUpElement);
+
+                let votesDownElement = $("<div></div>")
+                    .text(targetRequestData.votesDown)
+                    .addClass("ml-1 btn btn-sm btn-outline-danger")
+                    .css("width", "3rem");
+
+                listElem.append(votesDownElement);
+
+                let originalRequestTitle = $("<div></div>")
+                    .text("[original] " + targetRequestData.title.text())
+                    .addClass("ml-2")
+                    .css("font-style", "italic");
+                
+                listElem.append(originalRequestTitle);
+
+                modalList.append(listElem);
+
+                selectedRequests.forEach(function (selectedRequestId, i) {
+                    if(selectedRequestId == targetId)
+                        return;
+
+                    let requestData = getRequestElementData(selectedRequestId);
+                    votesUpSum += requestData.votesUp;
+                    votesDownSum += requestData.votesDown;
+
+                    let listElem = $("<li></li>")
+                        .addClass("d-flex w-100 mb-1");
+
+                    let listSymbol = $("<div></div>")
+                        .text("+")
+                        .addClass("listSymbol");
+
+                    listElem.append(listSymbol);
+
+                    let votesUpElement = $("<div></div>")
+                        .text(requestData.votesUp)
+                        .addClass("ml-1 btn btn-sm btn-outline-success")
+                        .css("width", "3rem");
+
+                    listElem.append(votesUpElement);
+
+                    let votesDownElement = $("<div></div>")
+                        .text(requestData.votesDown)
+                        .addClass("ml-1 btn btn-sm btn-outline-danger")
+                        .css("width", "3rem");
+
+                    listElem.append(votesDownElement);
+
+                    requestData.title.addClass("ml-2");
+                    listElem.append(requestData.title);
+
+                    modalList.append(listElem);
+                });
+
+                let votesUpTargetElement = $("<div></div>")
+                    .text(votesUpSum)
+                    .addClass("ml-1 btn btn-outline-success")
+                    .css("width", "4rem");
+
+                modalTargetRequest.append(votesUpTargetElement);
+
+                let votesDownTargetElement = $("<div></div>")
+                    .text(votesDownSum)
+                    .addClass("ml-1 btn btn-outline-danger")
+                    .css("width", "4rem");
+
+                modalTargetRequest.append(votesDownTargetElement);
+
+                targetRequestData.title.addClass("ml-2");
+                modalTargetRequest.append(targetRequestData.title);
+            }
+
+            function getRequestElementData(requestId) {
+                let request = $("#" + requestId);
+                let requestElement = request[0];
+                let votesUp = Number(requestElement.dataset.votesup);
+                let votesDown = Number(requestElement.dataset.votesdown);
+                let title = request.find("#title").clone();
+
+                let result = { title: title, votesUp: votesUp, votesDown: votesDown };
+
+                return result;
+            }
+
+            function showMergeConfirmModal(event) {
                 let targetIndex = event.data.index;
+                let targetId = selectedRequests[targetIndex];
+                refreshConfirmMergeModalList(targetId);
+                $("#mergeConfirmModal").find("#confirmMergeButton")[0]
+                    .attributes["data-targetindex"].value = targetIndex;
+
+                $("#mergeModal").modal('hide');
+                setTimeout(() => {
+                    $("#mergeConfirmModal").modal('show');
+                }, 100);
+            }
+
+            function cancelMerge() {
+                $("#mergeConfirmModal").modal('hide');
+                setTimeout(() => {
+                    $("#mergeModal").modal('show');
+                }, 100);
+            }
+
+            function mergeSelectedToTarget(event) {
+                let targetIndex = Number(event.target.dataset.targetindex);
+                if(isNaN(targetIndex)) {
+                    return;
+                }
+                
                 let targetId = selectedRequests.splice(targetIndex, 1)[0];
-                let payload = { targetId: targetId, sourceIds: selectedRequests }
+                let payload = { id: targetId, ids_from: selectedRequests }
                 let payloadJson = JSON.stringify(payload);
                 
                 let xhttp = new XMLHttpRequest();
                 xhttp.onreadystatechange = function () {
                     if (this.responseText == "OK") {
                         updateSingleRequest(targetId);
+                        setSelectToMergeButtonVisibility(targetId, true);
                         selectedRequests.forEach(sr => {
                             updateSingleRequest(sr);
+                            setSelectToMergeButtonVisibility(sr, true);
                         });
                         selectedRequests = [];
                         refreshMergeModalList();
+                        refreshConfirmMergeModalList();
                         setMergeModalButtonVisibility();
-                        $("#mergeModal").modal('hide');
+                        $("#mergeConfirmModal").modal('hide');
                         console.log("success");
                     }
                 };
